@@ -20,4 +20,4 @@ Mechanism: Claude Code is started with ANTHROPIC_BASE_URL=http://127.0.0.1:8290 
 - tests/: pins every routing and privacy guarantee
 
 ## Env vars
-HYBRID_UPSTREAM_URL (required), HYBRID_UPSTREAM_KEY (required), HYBRID_PORT=8290, HYBRID_CUSTOM_MODEL, HYBRID_CUSTOM_MODEL_NAME, HYBRID_ANTHROPIC_URL=https://api.anthropic.com
+HYBRID_UPSTREAM_URL (required), HYBRID_UPSTREAM_KEY (required), HYBRID_PORT=8290, HYBRID_MODELS (comma-separated "id=Label" rows for the /model picker; passed as --settings modelPicker), HYBRID_CUSTOM_MODEL, HYBRID_CUSTOM_MODEL_NAME, HYBRID_ANTHROPIC_URL=https://api.anthropic.com. `claude-hybrid models` lists the upstream's /v1/models. The launcher appends "SESSION MODE: claude-code-hybrid" to the system prompt so the main loop spawns native model: agents rather than shell relays.

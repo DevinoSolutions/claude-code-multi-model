@@ -7,6 +7,7 @@ Claude Code pointed at it, on your own Claude login.
     claude-hybrid init                    write the config file (asks for URL and key)
     claude-hybrid status                  is the gateway up, and where does it route
     claude-hybrid stop                    stop the gateway
+    claude-hybrid models                  list what the upstream serves (its /v1/models)
     claude-hybrid gateway                 run the gateway in the foreground
 
 Configuration, in order of precedence: environment, then the config file
@@ -18,9 +19,15 @@ Configuration, in order of precedence: environment, then the config file
                            https://api.moonshot.ai/anthropic, a LiteLLM proxy)
     HYBRID_UPSTREAM_KEY    its API key (sent as Bearer and x-api-key)
     HYBRID_PORT            gateway port, default 8290
-    HYBRID_CUSTOM_MODEL    a model id to list in Claude Code's /model picker and to
-                           exempt from the ~15 s availability check (slow first
-                           tokens, e.g. kimi-k3); optional
+    HYBRID_MODELS          upstream models to list in Claude Code's /model picker,
+                           comma-separated, each with an optional =Label:
+                           "kimi-k3=Kimi K3, deepseek-chat=DeepSeek V4, glm-5.3".
+                           A listed model switches without the ~15 s availability
+                           check that a slow first token (Kimi K3, ~100 s) fails.
+                           Passed to claude as --settings; your settings.json is
+                           not touched. Optional
+    HYBRID_CUSTOM_MODEL    one more model id for the picker (older single-slot
+                           form; ANTHROPIC_CUSTOM_MODEL_OPTION); optional
     HYBRID_CUSTOM_MODEL_NAME  its display name in the picker; optional
     HYBRID_ANTHROPIC_URL   where claude-* goes, default https://api.anthropic.com
 
@@ -35,10 +42,12 @@ environment only; ``claude`` never sees it.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -46,8 +55,86 @@ import httpx
 
 from claude_code_hybrid.gateway import DEFAULT_PORT
 
-CONFIG_KEYS = ("HYBRID_UPSTREAM_URL", "HYBRID_UPSTREAM_KEY", "HYBRID_PORT",
+CONFIG_KEYS = ("HYBRID_UPSTREAM_URL", "HYBRID_UPSTREAM_KEY", "HYBRID_PORT", "HYBRID_MODELS",
                "HYBRID_CUSTOM_MODEL", "HYBRID_CUSTOM_MODEL_NAME", "HYBRID_ANTHROPIC_URL")
+
+
+def picker_rows(cfg: dict[str, str]) -> list[dict[str, str]]:
+    """The rows ``HYBRID_MODELS`` adds to Claude Code's /model picker.
+
+    ``HYBRID_MODELS="kimi-k3=Kimi K3, deepseek-chat=DeepSeek V4, glm-5.3"``:
+    comma-separated model ids, each with an optional ``=Label``. The legacy
+    single ``HYBRID_CUSTOM_MODEL`` is appended when it is not already listed.
+    Duplicates keep their first position."""
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in (cfg.get("HYBRID_MODELS") or "").split(","):
+        model, _, label = item.strip().partition("=")
+        model, label = model.strip(), label.strip()
+        if not model or model in seen:
+            continue
+        seen.add(model)
+        row = {"model": model, "description": "served by the claude-code-hybrid upstream"}
+        if label:
+            row["label"] = label
+        rows.append(row)
+    custom = (cfg.get("HYBRID_CUSTOM_MODEL") or "").strip()
+    if custom and custom not in seen:
+        rows.append({"model": custom,
+                     "label": cfg.get("HYBRID_CUSTOM_MODEL_NAME") or f"{custom} (hybrid)",
+                     "description": "served by the claude-code-hybrid upstream"})
+    return rows
+
+
+def picker_settings_file(rows: list[dict[str, str]]) -> Path:
+    """Write the rows as a ``modelPicker`` settings file for ``--settings``.
+
+    Claude Code honours ``modelPicker`` from ``--settings`` (and managed or
+    user settings, never a project checkout), and a model listed there is
+    switched to without the ~15 s availability probe that a slow first token
+    fails. Nothing is written to the user's own settings.json."""
+    path = Path(tempfile.gettempdir()) / f"claude-hybrid-picker-{os.getpid()}.json"
+    path.write_text(json.dumps({"modelPicker": {"options": rows}}, indent=2), encoding="utf-8")
+    return path
+
+
+def claude_invocation(cfg: dict[str, str], argv: list[str],
+                      environ: dict[str, str]) -> tuple[list[str], dict[str, str]]:
+    """The argument list and environment ``claude`` is started with."""
+    port = port_of(cfg)
+    env = dict(environ)
+    env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS"):
+        env.pop(name, None)
+    env["CLAUDE_CODE_GATEWAY_HINT_HEADERS"] = "1"
+    for k in CONFIG_KEYS:
+        env.pop(k, None)
+    argv = list(argv)
+    rows = picker_rows(cfg)
+    if rows and "--settings" not in argv:
+        argv = ["--settings", str(picker_settings_file(rows)), *argv]
+    elif cfg.get("HYBRID_CUSTOM_MODEL") and not env.get("ANTHROPIC_CUSTOM_MODEL_OPTION"):
+        # The caller brought their own --settings; the one-slot env option
+        # still lists the custom model and skips its probe.
+        env["ANTHROPIC_CUSTOM_MODEL_OPTION"] = cfg["HYBRID_CUSTOM_MODEL"]
+        env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"] = \
+            cfg.get("HYBRID_CUSTOM_MODEL_NAME") or f"{cfg['HYBRID_CUSTOM_MODEL']} (hybrid)"
+    if "--append-system-prompt" not in argv and "--append-system-prompt-file" not in argv:
+        argv = ["--append-system-prompt", SESSION_NOTE, *argv]
+    return argv, env
+
+# Claude cannot see its own base URL. Without being told, a main loop reads
+# agent descriptions like "for a plain Anthropic session" and may relay a
+# non-Claude model through Bash instead of spawning the native subagent.
+SESSION_NOTE = (
+    "SESSION MODE: claude-code-hybrid. This Claude Code session runs through a local gateway: "
+    "claude-* models run on the user's own Claude login, and any other model id is served by "
+    "the configured upstream. A subagent whose frontmatter `model:` is not a claude-* id runs "
+    "NATIVELY on that model with Claude Code's own tools and a live transcript. When the user "
+    "asks for a non-Claude model, spawn the agent in .claude/agents whose model: names it; "
+    "never relay through a shell command or a script. /model <id> switches the main loop to "
+    "an upstream model without restarting."
+)
 
 
 def config_path() -> Path:
@@ -144,11 +231,16 @@ def cmd_init(argv: list[str]) -> int:
                                                    existing.get("HYBRID_UPSTREAM_URL"))
     key = _arg(argv, "--upstream-key") or _prompt("Upstream API key", existing.get("HYBRID_UPSTREAM_KEY"),
                                                    secret=True)
+    models = _arg(argv, "--models") or existing.get("HYBRID_MODELS") or _prompt(
+        "Upstream models for the /model picker (comma-separated, id=Label optional)",
+        existing.get("HYBRID_MODELS"))
     custom = _arg(argv, "--custom-model") or existing.get("HYBRID_CUSTOM_MODEL", "")
     if not url or not key:
         sys.exit("claude-hybrid init: both the URL and the key are required")
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"HYBRID_UPSTREAM_URL={url}", f"HYBRID_UPSTREAM_KEY={key}"]
+    if models:
+        lines.append(f"HYBRID_MODELS={models}")
     if custom:
         lines.append(f"HYBRID_CUSTOM_MODEL={custom}")
     for k in ("HYBRID_PORT", "HYBRID_CUSTOM_MODEL_NAME", "HYBRID_ANTHROPIC_URL"):
@@ -176,22 +268,31 @@ def cmd_status(cfg: dict[str, str]) -> int:
     return 0
 
 
+def cmd_models(cfg: dict[str, str]) -> int:
+    """List the upstream's models through the gateway (it relays /v1/models
+    with the upstream key, so the key never has to be typed here)."""
+    port = port_of(cfg)
+    if gateway_health(port) is None:
+        start_gateway(cfg)
+    try:
+        r = httpx.get(f"http://127.0.0.1:{port}/v1/models", timeout=30)
+        data = r.json().get("data", [])
+    except (httpx.HTTPError, ValueError) as exc:
+        sys.exit(f"claude-hybrid: the upstream's /v1/models did not answer: {exc}")
+    for item in data:
+        model = item.get("id", "")
+        name = item.get("display_name") or item.get("name") or ""
+        print(f"{model}\t{name}" if name and name != model else model)
+    print(f"# {len(data)} model(s); list the ones you want in HYBRID_MODELS, e.g. "
+          f'HYBRID_MODELS="{",".join(i.get("id", "") for i in data[:3])}"', file=sys.stderr)
+    return 0
+
+
 def run_claude(cfg: dict[str, str], argv: list[str]) -> int:
     claude = shutil.which("claude")
     if not claude:
         sys.exit("claude-hybrid: `claude` is not on PATH (install Claude Code first)")
-    port = port_of(cfg)
-    env = dict(os.environ)
-    env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS"):
-        env.pop(name, None)
-    env["CLAUDE_CODE_GATEWAY_HINT_HEADERS"] = "1"
-    if cfg.get("HYBRID_CUSTOM_MODEL") and not env.get("ANTHROPIC_CUSTOM_MODEL_OPTION"):
-        env["ANTHROPIC_CUSTOM_MODEL_OPTION"] = cfg["HYBRID_CUSTOM_MODEL"]
-        env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"] = \
-            cfg.get("HYBRID_CUSTOM_MODEL_NAME") or f"{cfg['HYBRID_CUSTOM_MODEL']} (hybrid)"
-    for k in CONFIG_KEYS:
-        env.pop(k, None)
+    argv, env = claude_invocation(cfg, argv, dict(os.environ))
     if os.name == "nt":
         return subprocess.call([claude, *argv], env=env)
     os.execve(claude, [claude, *argv], env)
@@ -236,6 +337,8 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         sys.exit(f"claude-hybrid: {', '.join(missing)} not set; run `claude-hybrid init` "
                  f"or export them ({config_path()})")
+    if argv and argv[0] == "models":
+        return cmd_models(cfg)
     if argv and argv[0] == "gateway":
         os.environ.update(HYBRID_UPSTREAM_URL=cfg["HYBRID_UPSTREAM_URL"],
                           HYBRID_UPSTREAM_KEY=cfg["HYBRID_UPSTREAM_KEY"],

@@ -58,7 +58,8 @@ and one upstream that speaks the **Anthropic Messages API** for the other models
 
 ```bash
 pip install git+https://github.com/DevinoSolutions/claude-code-hybrid   # or: uv tool install git+https://github.com/DevinoSolutions/claude-code-hybrid
-claude-hybrid init        # asks for the upstream URL and key, writes a 0600 config file
+claude-hybrid init        # asks for the upstream URL, key and picker models; writes a 0600 config file
+claude-hybrid models      # what the upstream serves, to choose HYBRID_MODELS from
 claude-hybrid             # starts the gateway if needed, then Claude Code pointed at it
 ```
 
@@ -101,9 +102,18 @@ providers differ on which one they read.
 
 - **Native subagents on other models.** `model:` in the agent frontmatter is the only switch.
   Claude Code spawns them, tracks them, and shows them exactly as it does Claude subagents.
-- **`/model <id>` mid-session.** The main loop can move to an upstream model and back
-  without restarting. Set `HYBRID_CUSTOM_MODEL=<id>` to list it in the `/model` picker and
-  skip Claude Code's ~15-second availability probe (needed for slow-first-token models).
+- **As many models in the `/model` picker as you want.** `HYBRID_MODELS="kimi-k3=Kimi K3,
+  deepseek-chat=DeepSeek V4, glm-5.3=GLM 5.3, ..."` lists every one of them under Opus,
+  Sonnet and Haiku, with your labels. `claude-hybrid models` prints what the upstream serves
+  so you can pick. The rows go to `claude` as `--settings` (Claude Code's `modelPicker`);
+  your own settings.json is never touched.
+- **`/model <id>` mid-session.** The main loop can move to any listed model and back without
+  restarting. A listed model is switched to without Claude Code's ~15-second availability
+  probe, which a slow first token (Kimi K3, about 100 s) would fail.
+- **The main loop knows where it is.** The launcher appends a `SESSION MODE:
+  claude-code-hybrid` line to the system prompt, so Claude spawns the native `model:` agent
+  for "use Kimi" instead of relaying through a shell. Pass your own `--append-system-prompt`
+  and it stays out of the way.
 - **The subscription stays in charge.** No `ANTHROPIC_API_KEY`, no per-token Claude bill.
 - **One command.** `claude-hybrid` starts the gateway if it is not running and then `claude`.
   `claude-hybrid status` and `claude-hybrid stop` for the gateway itself.
@@ -130,7 +140,8 @@ Environment variables win over the config file (`claude-hybrid init` writes it;
 | `HYBRID_UPSTREAM_URL` | base URL serving every non-Claude model | required |
 | `HYBRID_UPSTREAM_KEY` | its key | required |
 | `HYBRID_PORT` | gateway port | `8290` |
-| `HYBRID_CUSTOM_MODEL` | model id to add to the `/model` picker without the availability probe | unset |
+| `HYBRID_MODELS` | upstream models for the `/model` picker, comma-separated, optional `=Label` each (`kimi-k3=Kimi K3,glm-5.3`) | unset |
+| `HYBRID_CUSTOM_MODEL` | one more picker row (older single-slot form) | unset |
 | `HYBRID_CUSTOM_MODEL_NAME` | its label in the picker | `<id> (hybrid)` |
 | `HYBRID_ANTHROPIC_URL` | where `claude-*` goes | `https://api.anthropic.com` |
 
@@ -149,7 +160,7 @@ mechanism, your own Anthropic login goes only to Anthropic, and your own upstrea
 only to your upstream. It is the same split as running two clients, in one process.
 
 **Does the main session have to be Claude?** No. `/model kimi-k3` moves the main loop to the
-upstream; `/model opus` brings it back. A subagent with `model: opus` in a hybrid session is
+upstream; `/model opus` brings it back. Every id in `HYBRID_MODELS` is a row in the picker. A subagent with `model: opus` in a hybrid session is
 real Claude Opus on your subscription.
 
 **Can I route by agent name instead of model?** Claude Code does not send the agent name,
@@ -173,7 +184,7 @@ milliseconds. Long thinking turns are not timed out by the gateway (only the con
 If you are an agent asked to set this up for a user, do exactly this:
 
 1. `pip install git+https://github.com/DevinoSolutions/claude-code-hybrid` (or `uv tool install` the same URL).
-2. Ask the user once for their upstream base URL and key; run `claude-hybrid init --upstream-url <url> --upstream-key <key>`.
+2. Ask the user once for their upstream base URL and key; run `claude-hybrid init --upstream-url <url> --upstream-key <key> --models "<id>=<Label>,<id>=<Label>"` with the models they want in the `/model` picker (`claude-hybrid models` lists what the upstream serves).
 3. Copy the agent files the user wants from `agents/` into the project's `.claude/agents/`, editing `model:` to an id the upstream serves.
 4. Tell the user to start sessions with `claude-hybrid` instead of `claude`, and to say "use the <name> subagent" to spawn one.
 5. Verify: `claude-hybrid status` shows the gateway up; a one-line `claude-hybrid -p "say hi"` returns; the gateway log (`claude-hybrid status` prints its path) shows `line=anthropic` for that turn.
