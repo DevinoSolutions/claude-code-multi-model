@@ -42,6 +42,15 @@ credential variable keeps your saved claude.ai login as the active credential** 
 [LLM gateway guide](https://code.claude.com/docs/en/llm-gateway), "Subscriptions and
 gateways"). The gateway forwards that credential to Anthropic and to nobody else.
 
+## Proof
+
+A real Claude Code session started with `claude-hybrid`, no `ANTHROPIC_API_KEY` set. The
+`/model` picker lists Kimi K3 next to Opus, Sonnet and Haiku, and the turn before it was
+answered by Kimi K3 through the gateway's upstream. The Claude entries still run on the
+subscription login.
+
+![Claude Code /model picker showing Kimi K3 (proxy) beside Opus, Sonnet and Haiku, and a turn answered by Kimi K3](docs/model-picker-kimi-k3.png)
+
 ## 60-second start
 
 Prerequisites: Claude Code installed and logged in (`claude` on your PATH), Python 3.11+,
