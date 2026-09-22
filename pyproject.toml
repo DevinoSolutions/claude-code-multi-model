@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-code-hybrid"
+version = "0.1.0"
+description = "Run Claude Code on your Claude subscription while its subagents run on any other model (Kimi K3, GLM, DeepSeek, Qwen, Ollama, OpenRouter) through a tiny loopback gateway. No key swap, no restart, switch models with /model or an agent's model: line."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+keywords = [
+  "claude-code", "claude", "anthropic", "subagents", "multi-model", "llm-gateway",
+  "kimi-k3", "glm", "deepseek", "qwen", "ollama", "openrouter", "litellm",
+  "anthropic-base-url", "ai-coding-agent", "agent-orchestration",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: Internet :: Proxy Servers",
+]
+dependencies = [
+  "fastapi>=0.110",
+  "httpx>=0.27",
+  "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+claude-hybrid = "claude_code_hybrid.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/DevinoSolutions/claude-code-hybrid"
+Repository = "https://github.com/DevinoSolutions/claude-code-hybrid"
+Issues = "https://github.com/DevinoSolutions/claude-code-hybrid/issues"
+
+[tool.setuptools]
+packages = ["claude_code_hybrid"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
