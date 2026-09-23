@@ -1,6 +1,6 @@
-"""Real Claude, relayed: the Anthropic line of a hybrid session.
+"""Real Claude, relayed: the Anthropic line of a multi-model session.
 
-A hybrid session is Claude Code on its owner's own Anthropic login (the
+A multi-model session is Claude Code on its owner's own Anthropic login (the
 subscription's OAuth token, or an Anthropic API key) with the gateway as its
 ``ANTHROPIC_BASE_URL``. One Claude Code process talks to exactly one base
 URL and its subagents inherit it, so the only way for a Claude main loop to
@@ -34,9 +34,9 @@ import httpx
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse, StreamingResponse
 
-log = logging.getLogger("claude_code_hybrid.passthrough")
+log = logging.getLogger("claude_code_multi_model.passthrough")
 
-# What the response's ``x-hybrid-provider`` header says for a relayed request.
+# What the response's ``x-multimodel-provider`` header says for a relayed request.
 PROVIDER = "anthropic"
 
 _HOP_BY_HOP = frozenset({
@@ -52,7 +52,7 @@ _DROP_REQUEST = _HOP_BY_HOP | {
     "host", "content-length", "accept-encoding", "cookie",
     "forwarded", "via", "x-real-ip", "true-client-ip", "cdn-loop",
 }
-_DROP_REQUEST_PREFIXES = ("cf-", "x-forwarded-", "x-hybrid-")
+_DROP_REQUEST_PREFIXES = ("cf-", "x-forwarded-", "x-multimodel-")
 
 # Response headers that stay at Anthropic's end: this hop frames the body
 # itself (decoded, chunked), stamps its own date and server, and cookies
@@ -98,11 +98,11 @@ def relayable_response_headers(headers: Iterable[tuple[str, str]]) -> dict[str, 
 
 def inbound_headers(headers: Iterable[tuple[str, str]], model: str) -> dict[str, str]:
     """Anthropic's response headers as they go back to the client, plus the
-    two ``x-hybrid-*`` headers that say which line answered."""
+    two ``x-multimodel-*`` headers that say which line answered."""
     out = relayable_response_headers(headers)
     safe_model = "".join(c if 32 <= ord(c) <= 126 else "?" for c in model)[:160]
-    out["x-hybrid-model"] = safe_model
-    out["x-hybrid-provider"] = PROVIDER
+    out["x-multimodel-model"] = safe_model
+    out["x-multimodel-provider"] = PROVIDER
     return out
 
 
@@ -128,7 +128,7 @@ def _error(status: int, message: str) -> JSONResponse:
     return JSONResponse({"type": "error",
                          "error": {"type": "api_error", "message": message}},
                         status_code=status,
-                        headers={"x-hybrid-provider": PROVIDER})
+                        headers={"x-multimodel-provider": PROVIDER})
 
 
 async def relay(client: httpx.AsyncClient, base_url: str, path: str, query: str,

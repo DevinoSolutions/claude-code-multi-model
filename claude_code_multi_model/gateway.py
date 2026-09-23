@@ -1,7 +1,7 @@
-"""The hybrid-session gateway: a loopback server with two lines out.
+"""The multi-model-session gateway: a loopback server with two lines out.
 
-Run on the developer's own machine (``python -m claude_code_hybrid.gateway``,
-started by the ``claude-hybrid`` launcher) and point Claude Code at it with
+Run on the developer's own machine (``python -m claude_code_multi_model.gateway``,
+started by the ``claude-multi`` launcher) and point Claude Code at it with
 ``ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`` and *no* credential
 variable. Claude Code's gateway guide is explicit that this keeps the
 subscription: "Setting only that variable, without a gateway credential,
@@ -15,7 +15,7 @@ lines:
   carries its own credential (the subscription's OAuth bearer, or an
   Anthropic API key) goes to ``api.anthropic.com`` as it came: same path,
   query and body bytes, every header but host, hop-by-hop,
-  ``accept-encoding`` and ``x-hybrid-*``. In particular ``anthropic-beta``
+  ``accept-encoding`` and ``x-multimodel-*``. In particular ``anthropic-beta``
   goes verbatim: it "carries an OAuth capability that the upstream
   requires, and stripping it fails those requests with ``401``"
   (https://code.claude.com/docs/en/llm-gateway-protocol, "Request
@@ -23,9 +23,9 @@ lines:
   Anthropic, and nothing here stores or logs it.
 * **Upstream line.** Everything else (``kimi-k3``, ``glm-5.3``,
   ``deepseek-chat``, ``/v1/models``, the OpenAI dialects) goes to
-  ``HYBRID_UPSTREAM_URL`` with headers rebuilt from nothing:
+  ``MULTI_MODEL_UPSTREAM_URL`` with headers rebuilt from nothing:
   ``content-type``, ``anthropic-version``, ``anthropic-beta``, ``accept``
-  and your own ``HYBRID_UPSTREAM_KEY`` (as both ``Authorization: Bearer``
+  and your own ``MULTI_MODEL_UPSTREAM_KEY`` (as both ``Authorization: Bearer``
   and ``x-api-key``, since Anthropic-compatible endpoints differ on which
   they read). No ``x-claude-code-*`` header, no cookie, never the client's
   own Authorization; and the body's top-level ``metadata`` is removed,
@@ -33,7 +33,7 @@ lines:
 
 This process is deliberately thin: no providers, no catalog, no database,
 no model keys beyond the one upstream key. It needs nothing but the two
-``HYBRID_UPSTREAM_*`` variables and binds loopback only.
+``MULTI_MODEL_UPSTREAM_*`` variables and binds loopback only.
 
 The routing key is the model name, because that is the only thing an
 agent definition controls (``model:``); Claude Code never sends a
@@ -60,9 +60,9 @@ from fastapi import FastAPI, Request
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from claude_code_hybrid import passthrough as ap
+from claude_code_multi_model import passthrough as ap
 
-log = logging.getLogger("claude_code_hybrid.gateway")
+log = logging.getLogger("claude_code_multi_model.gateway")
 
 DEFAULT_PORT = 8290
 
@@ -74,12 +74,12 @@ _MESSAGES_PATHS = frozenset({"/v1/messages", "/v1/messages/count_tokens",
                              "/anthropic/v1/messages", "/anthropic/v1/messages/count_tokens"})
 
 # An upstream may name what served a request in its response headers
-# (``x-hybrid-model`` / ``x-hybrid-provider``, or the ``x-orf-*`` pair some
+# (``x-multimodel-model`` / ``x-multimodel-provider``, or the ``x-orf-*`` pair some
 # proxies use) or, for a stream whose headers went out before routing
 # finished, in leading SSE comment lines. Read for the log only.
-_DISCLOSURE = re.compile(rb"^: \w+ (x-(?:hybrid|orf)-[a-z-]+): (.*)$", re.MULTILINE)
+_DISCLOSURE = re.compile(rb"^: \w+ (x-(?:multi-model|orf)-[a-z-]+): (.*)$", re.MULTILINE)
 _SNIFF_LIMIT = 16 * 1024
-_SERVED_HEADERS = (("x-hybrid-model", "x-orf-model"), ("x-hybrid-provider", "x-orf-provider"))
+_SERVED_HEADERS = (("x-multimodel-model", "x-orf-model"), ("x-multimodel-provider", "x-orf-provider"))
 
 
 def upstream_headers(headers: Iterable[tuple[str, str]], key: str) -> list[tuple[str, str]]:
@@ -152,7 +152,7 @@ def create_gateway_app(upstream_url: str, upstream_key: str,
                        client: httpx.AsyncClient | None = None) -> FastAPI:
     upstream_url = upstream_url.rstrip("/")
     anthropic_base_url = anthropic_base_url.rstrip("/")
-    app = FastAPI(title="claude-code-hybrid gateway", docs_url=None, redoc_url=None,
+    app = FastAPI(title="claude-code-multi-model gateway", docs_url=None, redoc_url=None,
                   openapi_url=None)
     app.state.client = client
 
@@ -238,12 +238,12 @@ def create_gateway_app(upstream_url: str, upstream_key: str,
             finally:
                 await upstream.aclose()
                 for name, value in _DISCLOSURE.findall(head):
-                    key = name.decode("ascii").replace("x-orf-", "x-hybrid-")
+                    key = name.decode("ascii").replace("x-orf-", "x-multimodel-")
                     served.setdefault(key, value.decode("utf-8", "replace").strip())
                 log.info("gateway %s -> %s status=%d served=%s provider=%s "
                          "headers_in=%.1fs total=%.1fs bytes=%d", tag, outcome,
-                         upstream.status_code, served.get("x-hybrid-model", "-"),
-                         served.get("x-hybrid-provider", "-"), first_headers,
+                         upstream.status_code, served.get("x-multimodel-model", "-"),
+                         served.get("x-multimodel-provider", "-"), first_headers,
                          time.monotonic() - started, size)
 
         return StreamingResponse(body_iter(), status_code=upstream.status_code,
@@ -256,25 +256,25 @@ def create_gateway_app(upstream_url: str, upstream_key: str,
 def main() -> None:
     import uvicorn
 
-    # HYBRID_LOG_FILE lets the launcher start this detached without
+    # MULTI_MODEL_LOG_FILE lets the launcher start this detached without
     # redirecting its output: a redirected child inherits the launcher's
     # own handles, and a caller reading the launcher through a pipe then
     # waits on the gateway forever.
-    logging.basicConfig(level=logging.INFO, filename=os.environ.get("HYBRID_LOG_FILE") or None,
+    logging.basicConfig(level=logging.INFO, filename=os.environ.get("MULTI_MODEL_LOG_FILE") or None,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    upstream_url = os.environ.get("HYBRID_UPSTREAM_URL", "").strip()
-    upstream_key = os.environ.get("HYBRID_UPSTREAM_KEY", "").strip()
-    anthropic = os.environ.get("HYBRID_ANTHROPIC_URL", "https://api.anthropic.com").strip()
-    for name, value in (("HYBRID_UPSTREAM_URL", upstream_url),
-                        ("HYBRID_ANTHROPIC_URL", anthropic)):
+    upstream_url = os.environ.get("MULTI_MODEL_UPSTREAM_URL", "").strip()
+    upstream_key = os.environ.get("MULTI_MODEL_UPSTREAM_KEY", "").strip()
+    anthropic = os.environ.get("MULTI_MODEL_ANTHROPIC_URL", "https://api.anthropic.com").strip()
+    for name, value in (("MULTI_MODEL_UPSTREAM_URL", upstream_url),
+                        ("MULTI_MODEL_ANTHROPIC_URL", anthropic)):
         parts = urlsplit(value)
         if parts.scheme not in ("http", "https") or not parts.netloc:
             log.error("%s must be an http(s) URL, got %r", name, value)
             raise SystemExit(2)
     if not upstream_key:
-        log.error("HYBRID_UPSTREAM_KEY is not set")
+        log.error("MULTI_MODEL_UPSTREAM_KEY is not set")
         raise SystemExit(2)
-    port = int(os.environ.get("HYBRID_PORT", str(DEFAULT_PORT)))
+    port = int(os.environ.get("MULTI_MODEL_PORT", str(DEFAULT_PORT)))
     app = create_gateway_app(upstream_url, upstream_key, anthropic)
     log.info("gateway on 127.0.0.1:%d: claude-* -> %s, everything else -> %s",
              port, urlsplit(anthropic).netloc, urlsplit(upstream_url).netloc)

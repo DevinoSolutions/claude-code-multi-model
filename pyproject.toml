@@ -3,7 +3,7 @@ requires = ["setuptools>=70"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "claude-code-hybrid"
+name = "claude-code-multi-model"
 version = "0.1.0"
 description = "Run Claude Code on your Claude subscription while its subagents run on any other model (Kimi K3, GLM, DeepSeek, Qwen, Ollama, OpenRouter) through a tiny loopback gateway. No key swap, no restart, switch models with /model or an agent's model: line."
 readme = "README.md"
@@ -37,15 +37,15 @@ dependencies = [
 test = ["pytest>=8", "pytest-asyncio>=0.23"]
 
 [project.scripts]
-claude-hybrid = "claude_code_hybrid.cli:main"
+claude-multi = "claude_code_multi_model.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/DevinoSolutions/claude-code-hybrid"
-Repository = "https://github.com/DevinoSolutions/claude-code-hybrid"
-Issues = "https://github.com/DevinoSolutions/claude-code-hybrid/issues"
+Homepage = "https://github.com/DevinoSolutions/claude-code-multi-model"
+Repository = "https://github.com/DevinoSolutions/claude-code-multi-model"
+Issues = "https://github.com/DevinoSolutions/claude-code-multi-model/issues"
 
 [tool.setuptools]
-packages = ["claude_code_hybrid"]
+packages = ["claude_code_multi_model"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"

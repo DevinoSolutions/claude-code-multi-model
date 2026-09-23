@@ -15,7 +15,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from claude_code_hybrid.gateway import create_gateway_app, strip_metadata
+from claude_code_multi_model.gateway import create_gateway_app, strip_metadata
 
 UPSTREAM = "https://upstream.example"
 UPSTREAM_KEY = "upstream_key_123"
@@ -77,7 +77,7 @@ async def test_main_claude_turn_takes_the_anthropic_line_untouched(gw):
     body = _body("claude-opus-5-5")
     r = await gw.post("/v1/messages?beta=true", content=body, headers=BASE)
     assert r.status_code == 200 and r.content == SSE
-    assert r.headers["x-hybrid-provider"] == "anthropic"
+    assert r.headers["x-multimodel-provider"] == "anthropic"
     (sent,) = gw.rec.requests
     assert str(sent.url) == "https://api.anthropic.com/v1/messages?beta=true"
     assert sent.content == body                      # metadata and all
@@ -122,8 +122,8 @@ async def test_subagent_turn_takes_the_upstream_line_with_our_key_only(gw):
 
 @pytest.mark.asyncio
 async def test_upstream_answer_is_relayed_with_its_disclosure_headers():
-    rec = Recorder(upstream_headers={"x-hybrid-model": "moonshotai/kimi-k3",
-                                     "x-hybrid-provider": "nim", "content-length": "999",
+    rec = Recorder(upstream_headers={"x-multimodel-model": "moonshotai/kimi-k3",
+                                     "x-multimodel-provider": "nim", "content-length": "999",
                                      "cf-ray": "edge"})
     client = httpx.AsyncClient(transport=httpx.MockTransport(rec.handler))
     app = create_gateway_app(UPSTREAM, UPSTREAM_KEY, client=client)
@@ -131,8 +131,8 @@ async def test_upstream_answer_is_relayed_with_its_disclosure_headers():
         r = await c.post("/v1/messages", content=_body("kimi-k3"), headers=SUBAGENT)
     await client.aclose()
     assert r.content == SSE
-    assert r.headers["x-hybrid-provider"] == "nim"
-    assert r.headers["x-hybrid-model"] == "moonshotai/kimi-k3"
+    assert r.headers["x-multimodel-provider"] == "nim"
+    assert r.headers["x-multimodel-model"] == "moonshotai/kimi-k3"
     assert "cf-ray" not in r.headers
 
 
@@ -169,7 +169,7 @@ async def test_committed_stream_disclosure_lands_in_the_log(caplog):
     rec = Recorder(upstream_body=body)
     client = httpx.AsyncClient(transport=httpx.MockTransport(rec.handler))
     app = create_gateway_app(UPSTREAM, UPSTREAM_KEY, client=client)
-    caplog.set_level(logging.INFO, logger="claude_code_hybrid.gateway")
+    caplog.set_level(logging.INFO, logger="claude_code_multi_model.gateway")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://127.0.0.1") as c:
         await c.post("/v1/messages?beta=true", content=_body("kimi-k3"), headers=SUBAGENT)
         await c.post("/v1/messages?beta=true", content=_body("claude-opus-5-5"), headers=BASE)
@@ -216,7 +216,7 @@ def test_strip_metadata_leaves_other_bodies_alone():
 def test_gateway_boots_with_nothing_but_its_two_variables(tmp_path, tmp_path_factory):
     """No config file, no other keys: the gateway still starts, binds
     loopback, answers /health, writes nothing where it runs, and logs to
-    HYBRID_LOG_FILE without the key in it."""
+    MULTI_MODEL_LOG_FILE without the key in it."""
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -224,9 +224,9 @@ def test_gateway_boots_with_nothing_but_its_two_variables(tmp_path, tmp_path_fac
     log_file = tmp_path_factory.mktemp("log") / "gateway.log"
     env = {k: v for k, v in os.environ.items()
            if k in ("SYSTEMROOT", "PATH", "TEMP", "TMP", "HOME", "USERPROFILE")}
-    env.update(HYBRID_UPSTREAM_URL=UPSTREAM, HYBRID_UPSTREAM_KEY=UPSTREAM_KEY,
-               HYBRID_PORT=str(port), PYTHONPATH=repo, HYBRID_LOG_FILE=str(log_file))
-    proc = subprocess.Popen([sys.executable, "-m", "claude_code_hybrid.gateway"], cwd=tmp_path,
+    env.update(MULTI_MODEL_UPSTREAM_URL=UPSTREAM, MULTI_MODEL_UPSTREAM_KEY=UPSTREAM_KEY,
+               MULTI_MODEL_PORT=str(port), PYTHONPATH=repo, MULTI_MODEL_LOG_FILE=str(log_file))
+    proc = subprocess.Popen([sys.executable, "-m", "claude_code_multi_model.gateway"], cwd=tmp_path,
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
         deadline = time.monotonic() + 30

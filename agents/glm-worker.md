@@ -1,6 +1,6 @@
 ---
 name: glm-worker
-description: Coding worker on GLM (Zhipu), served by the hybrid gateway's upstream. Use when the user says "use glm", "glm subagent", or "ask glm" and wants GLM to do a task while the main session stays on Claude.
+description: Coding worker on GLM (Zhipu), served by the multi-model gateway's upstream. Use when the user says "use glm", "glm subagent", or "ask glm" and wants GLM to do a task while the main session stays on Claude.
 tools: Read, Edit, Write, Glob, Grep, Bash
 model: glm-5.3
 ---

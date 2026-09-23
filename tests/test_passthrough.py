@@ -6,11 +6,11 @@ import logging
 import httpx
 import pytest
 
-from claude_code_hybrid import passthrough
+from claude_code_multi_model import passthrough
 
 OAUTH = "sk-ant-oat01-owner-subscription-token"
 CLAUDE = "claude-haiku-4-5-20251001"
-HYBRID = {
+GATEWAY = {
     "Authorization": f"Bearer {OAUTH}",
     "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
     "anthropic-version": "2023-06-01",
@@ -23,7 +23,7 @@ HYBRID = {
 EDGE = {
     "cf-connecting-ip": "203.0.113.9", "cf-ray": "abc-YUL", "x-forwarded-for": "203.0.113.9",
     "x-real-ip": "203.0.113.9", "cdn-loop": "cloudflare", "cookie": "a=b",
-    "x-hybrid-anything": "1",
+    "x-multimodel-anything": "1",
 }
 SSE = (b'event: message_start\ndata: {"type":"message_start"}\n\n'
        b'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,'
@@ -66,22 +66,22 @@ async def test_request_is_relayed_with_its_own_credential_and_without_the_edge()
     fake = FakeAnthropic()
     async with fake.client() as client:
         r = await passthrough.relay(client, "https://api.anthropic.com", "/v1/messages",
-                                    "beta=true", list({**HYBRID, **EDGE}.items()), BODY, CLAUDE)
+                                    "beta=true", list({**GATEWAY, **EDGE}.items()), BODY, CLAUDE)
         assert await _drain(r) == SSE
     (sent,) = fake.requests
     assert str(sent.url) == "https://api.anthropic.com/v1/messages?beta=true"
     assert sent.content == BODY
     for name in ("authorization", "anthropic-beta", "anthropic-version",
                  "anthropic-dangerous-direct-browser-access", "x-app", "user-agent"):
-        assert sent.headers[name] == {k.lower(): v for k, v in HYBRID.items()}[name], name
+        assert sent.headers[name] == {k.lower(): v for k, v in GATEWAY.items()}[name], name
     for name in EDGE:
         assert name not in sent.headers, name
     assert r.status_code == 200
     assert r.headers["request-id"] == "req_01abc"
     assert r.headers["anthropic-ratelimit-unified-status"] == "allowed"
     assert "cf-ray" not in r.headers and "set-cookie" not in r.headers
-    assert r.headers["x-hybrid-provider"] == "anthropic"
-    assert r.headers["x-hybrid-model"] == CLAUDE
+    assert r.headers["x-multimodel-provider"] == "anthropic"
+    assert r.headers["x-multimodel-model"] == CLAUDE
 
 
 @pytest.mark.asyncio
@@ -90,7 +90,7 @@ async def test_stream_is_relayed_chunk_by_chunk():
     fake = FakeAnthropic(chunks=chunks)
     async with fake.client() as client:
         r = await passthrough.relay(client, "https://api.anthropic.com", "/v1/messages",
-                                    "", list(HYBRID.items()), BODY, CLAUDE)
+                                    "", list(GATEWAY.items()), BODY, CLAUDE)
         got = [c async for c in r.body_iterator]
     assert got == chunks
 
@@ -102,7 +102,7 @@ async def test_anthropic_errors_are_relayed_as_sent():
                          headers={"content-type": "application/json", "retry-after": "17"})
     async with fake.client() as client:
         r = await passthrough.relay(client, "https://api.anthropic.com", "/v1/messages",
-                                    "", list(HYBRID.items()), BODY, CLAUDE)
+                                    "", list(GATEWAY.items()), BODY, CLAUDE)
         assert await _drain(r) == err
     assert r.status_code == 429 and r.headers["retry-after"] == "17"
 
@@ -113,7 +113,7 @@ async def test_the_anthropic_prefix_maps_to_anthropics_path():
     async with fake.client() as client:
         r = await passthrough.relay(client, "https://api.anthropic.com",
                                     "/anthropic/v1/messages/count_tokens", "beta=true",
-                                    list(HYBRID.items()), BODY, CLAUDE)
+                                    list(GATEWAY.items()), BODY, CLAUDE)
         await _drain(r)
     assert str(fake.requests[0].url) == \
         "https://api.anthropic.com/v1/messages/count_tokens?beta=true"
@@ -125,7 +125,7 @@ async def test_unreachable_anthropic_is_a_502_and_nothing_secret_is_logged(caplo
     fake = FakeAnthropic(fail=httpx.ConnectError)
     async with fake.client() as client:
         r = await passthrough.relay(client, "https://api.anthropic.com", "/v1/messages",
-                                    "", list(HYBRID.items()), BODY, CLAUDE)
+                                    "", list(GATEWAY.items()), BODY, CLAUDE)
     assert r.status_code == 502
     assert "anthropic relay /v1/messages" in caplog.text
     for secret in (OAUTH, "hi \\u00e9"):
@@ -135,7 +135,7 @@ async def test_unreachable_anthropic_is_a_502_and_nothing_secret_is_logged(caplo
 def test_outbound_headers_keep_repeats_and_drop_the_edge():
     out = passthrough.outbound_headers([
         ("anthropic-beta", "a"), ("anthropic-beta", "b"), ("host", "gateway.example"),
-        ("content-length", "9"), ("connection", "keep-alive"), ("x-hybrid-model", "m"),
+        ("content-length", "9"), ("connection", "keep-alive"), ("x-multimodel-model", "m"),
         ("CF-Visitor", "{}"), ("X-Forwarded-Host", "h"), ("accept-encoding", "gzip"),
         ("x-stainless-retry-count", "0")])
     assert out == [("anthropic-beta", "a"), ("anthropic-beta", "b"),

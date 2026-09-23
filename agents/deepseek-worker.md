@@ -1,6 +1,6 @@
 ---
 name: deepseek-worker
-description: Coding worker on DeepSeek, served by the hybrid gateway's upstream. Use when the user says "use deepseek", "deepseek subagent", or "ask deepseek" and wants DeepSeek to do a task while the main session stays on Claude.
+description: Coding worker on DeepSeek, served by the multi-model gateway's upstream. Use when the user says "use deepseek", "deepseek subagent", or "ask deepseek" and wants DeepSeek to do a task while the main session stays on Claude.
 tools: Read, Edit, Write, Glob, Grep, Bash
 model: deepseek-chat
 ---

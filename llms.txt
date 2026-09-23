@@ -1,23 +1,23 @@
-# claude-code-hybrid
+# claude-code-multi-model
 
 > Loopback gateway that lets Claude Code run its main session on the user's Claude subscription while subagents (and /model switches) run on any other model served by an Anthropic-Messages-compatible upstream: Kimi K3, GLM, DeepSeek, Qwen, Ollama, OpenRouter, LiteLLM. Python 3.11+, MIT.
 
-Mechanism: Claude Code is started with ANTHROPIC_BASE_URL=http://127.0.0.1:8290 and no credential variable, which (per Claude Code's LLM gateway docs) keeps the saved claude.ai login active. The gateway sends model ids starting with "claude-" to api.anthropic.com with that login untouched, and every other model id to HYBRID_UPSTREAM_URL with HYBRID_UPSTREAM_KEY only. Subagents pick their model with the `model:` line of a .claude/agents/*.md file.
+Mechanism: Claude Code is started with ANTHROPIC_BASE_URL=http://127.0.0.1:8290 and no credential variable, which (per Claude Code's LLM gateway docs) keeps the saved claude.ai login active. The gateway sends model ids starting with "claude-" to api.anthropic.com with that login untouched, and every other model id to MULTI_MODEL_UPSTREAM_URL with MULTI_MODEL_UPSTREAM_KEY only. Subagents pick their model with the `model:` line of a .claude/agents/*.md file.
 
 ## Install and run
-- pip install git+https://github.com/DevinoSolutions/claude-code-hybrid
-- claude-hybrid init --upstream-url <base-url> --upstream-key <key>
-- claude-hybrid            (starts gateway if needed, then `claude`; extra args pass through)
-- claude-hybrid status | stop | gateway
+- pip install git+https://github.com/DevinoSolutions/claude-code-multi-model
+- claude-multi init --upstream-url <base-url> --upstream-key <key>
+- claude-multi            (starts gateway if needed, then `claude`; extra args pass through)
+- claude-multi status | stop | gateway
 
 ## Files
 - README.md: full guide, upstream table, FAQ, agent-setup steps
 - agents/: example subagent definitions (kimi-k3-worker, deepseek-worker, glm-worker, local-worker)
-- claude_code_hybrid/gateway.py: the router (create_gateway_app, main)
-- claude_code_hybrid/passthrough.py: the Anthropic relay
-- claude_code_hybrid/cli.py: the claude-hybrid launcher
+- claude_code_multi_model/gateway.py: the router (create_gateway_app, main)
+- claude_code_multi_model/passthrough.py: the Anthropic relay
+- claude_code_multi_model/cli.py: the claude-multi launcher
 - SECURITY.md: what leaves the machine and to whom
 - tests/: pins every routing and privacy guarantee
 
 ## Env vars
-HYBRID_UPSTREAM_URL (required), HYBRID_UPSTREAM_KEY (required), HYBRID_PORT=8290, HYBRID_MODELS (comma-separated "id=Label" rows for the /model picker; passed as --settings modelPicker), HYBRID_CUSTOM_MODEL, HYBRID_CUSTOM_MODEL_NAME, HYBRID_ANTHROPIC_URL=https://api.anthropic.com. `claude-hybrid models` lists the upstream's /v1/models. The launcher appends "SESSION MODE: claude-code-hybrid" to the system prompt so the main loop spawns native model: agents rather than shell relays.
+MULTI_MODEL_UPSTREAM_URL (required), MULTI_MODEL_UPSTREAM_KEY (required), MULTI_MODEL_PORT=8290, MULTI_MODEL_MODELS (comma-separated "id=Label" rows for the /model picker; passed as --settings modelPicker), MULTI_MODEL_CUSTOM_MODEL, MULTI_MODEL_CUSTOM_MODEL_NAME, MULTI_MODEL_ANTHROPIC_URL=https://api.anthropic.com. `claude-multi models` lists the upstream's /v1/models. The launcher appends "SESSION MODE: claude-code-multi-model" to the system prompt so the main loop spawns native model: agents rather than shell relays.
