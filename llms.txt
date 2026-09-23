@@ -1,5 +1,7 @@
 # claude-code-multi-model
 
+One gateway per machine serves every Claude Code session on it (launchers start it only if 127.0.0.1:8290 does not answer; a second gateway exits on its own). 50+ sessions with subagents share a single asyncio process with an unbounded outbound pool; verified by a 64-concurrent-stream test.
+
 > Loopback gateway that lets Claude Code run its main session on the user's Claude subscription while subagents (and /model switches) run on any other model served by an Anthropic-Messages-compatible upstream: Kimi K3, GLM, DeepSeek, Qwen, Ollama, OpenRouter, LiteLLM. Python 3.11+, MIT.
 
 Mechanism: Claude Code is started with ANTHROPIC_BASE_URL=http://127.0.0.1:8290 and no credential variable, which (per Claude Code's LLM gateway docs) keeps the saved claude.ai login active. The gateway sends model ids starting with "claude-" to api.anthropic.com with that login untouched, and every other model id to MULTI_MODEL_UPSTREAM_URL with MULTI_MODEL_UPSTREAM_KEY only. Subagents pick their model with the `model:` line of a .claude/agents/*.md file.

@@ -77,7 +77,7 @@ _MESSAGES_PATHS = frozenset({"/v1/messages", "/v1/messages/count_tokens",
 # (``x-multimodel-model`` / ``x-multimodel-provider``, or the ``x-orf-*`` pair some
 # proxies use) or, for a stream whose headers went out before routing
 # finished, in leading SSE comment lines. Read for the log only.
-_DISCLOSURE = re.compile(rb"^: \w+ (x-(?:multi-model|orf)-[a-z-]+): (.*)$", re.MULTILINE)
+_DISCLOSURE = re.compile(rb"^: \w+ (x-(?:multimodel|orf)-[a-z-]+): (.*)$", re.MULTILINE)
 _SNIFF_LIMIT = 16 * 1024
 _SERVED_HEADERS = (("x-multimodel-model", "x-orf-model"), ("x-multimodel-provider", "x-orf-provider"))
 
@@ -253,6 +253,21 @@ def create_gateway_app(upstream_url: str, upstream_key: str,
     return app
 
 
+def already_running(port: int) -> bool:
+    """True when a gateway already answers on this port.
+
+    One gateway serves every Claude Code session on the machine: it is a
+    single asyncio process with an unbounded outbound pool, and each session
+    (and each of its subagents) is just one more streamed request through it.
+    Fifty launchers starting at once must therefore end with one gateway,
+    not fifty; the ones that lose the race exit here, quietly."""
+    try:
+        r = httpx.get(f"http://127.0.0.1:{port}/health", timeout=1.0)
+        return r.json().get("mode") == "gateway"
+    except (httpx.HTTPError, ValueError):
+        return False
+
+
 def main() -> None:
     import uvicorn
 
@@ -275,6 +290,10 @@ def main() -> None:
         log.error("MULTI_MODEL_UPSTREAM_KEY is not set")
         raise SystemExit(2)
     port = int(os.environ.get("MULTI_MODEL_PORT", str(DEFAULT_PORT)))
+    if already_running(port):
+        log.info("a gateway already answers on 127.0.0.1:%d; this one is not needed "
+                 "(one gateway serves every session on this machine)", port)
+        return
     app = create_gateway_app(upstream_url, upstream_key, anthropic)
     log.info("gateway on 127.0.0.1:%d: claude-* -> %s, everything else -> %s",
              port, urlsplit(anthropic).netloc, urlsplit(upstream_url).netloc)

@@ -120,6 +120,20 @@ providers differ on which one they read.
 - **A log that shows the split.** `class=main line=anthropic ...` versus
   `class=subagent line=upstream model=kimi-k3 ...`, with first-byte and total time per turn.
 
+## Fifty sessions, one gateway
+
+The gateway runs **once per machine**, not once per session. Every `claude-multi` launch
+checks `127.0.0.1:8290/health` first and only starts a gateway if nothing answers; a
+gateway that starts and finds another one already up exits on its own. So fifty Claude Code
+sessions, each spawning subagents, share one process: a single asyncio server with an
+unbounded outbound pool, where each session and each subagent is just one more streamed
+request in flight. No worker pool, no per-session state, nothing to replicate. The test
+suite streams 64 concurrent upstream turns through one gateway and checks they overlap
+instead of queueing.
+
+`claude-multi stop` stops that one shared process; every session pointed at it fails its
+next request until something starts it again, so stop it when the last session is done.
+
 ## What leaves your machine, exactly
 
 | request | goes to | with |
